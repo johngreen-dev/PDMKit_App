@@ -20,10 +20,32 @@ export const addPin = (pin: Pin): Promise<string[]> => {
       return sendCommand(`RS_AddInput ${pin.name} ${pin.gpio} ${pin.pull ?? "none"}`);
     case "adc":
       return sendCommand(`RS_AddADC ${pin.name} ${pin.adcUnit} ${pin.adcChannel}`);
-    case "pwm":
-      return sendCommand(`RS_AddPWM ${pin.name} ${pin.gpio}${pin.pwmFreq ? ` ${pin.pwmFreq}` : ""}`);
+    case "pwm": {
+      const freq = pin.pwmFreq ? " " + String(pin.pwmFreq) : "";
+      return sendCommand(`RS_AddPWM ${pin.name} ${pin.gpio}${freq}`);
+    }
   }
 };
+
+const parseGpio = (s: string): number => {
+  const m = /gpio(\d+)/i.exec(s);
+  return m ? +m[1] : 0;
+};
+
+function parsePinLine(parts: string[]): Pin | null {
+  const [name, type, loc] = parts;
+  if (type === "dout") return { name, type: "dout", gpio: parseGpio(loc) };
+  if (type === "din")  return { name, type: "din",  gpio: parseGpio(loc), pull: (parts[3] ?? "none") as Pin["pull"] };
+  if (type === "adc") {
+    const m = /u(\d)c(\d+)/.exec(loc);
+    return m ? { name, type: "adc", adcUnit: +m[1], adcChannel: +m[2] } : null;
+  }
+  if (type === "pwm") {
+    const freqStr = parts[3];
+    return { name, type: "pwm", gpio: parseGpio(loc), pwmFreq: freqStr ? Number.parseInt(freqStr, 10) : 5000 };
+  }
+  return null;
+}
 
 export const parsePins = (lines: string[]): Pin[] => {
   const pins: Pin[] = [];
@@ -31,26 +53,66 @@ export const parsePins = (lines: string[]): Pin[] => {
     if (line === "PINS_BEGIN" || line === "PINS_END") continue;
     const parts = line.split(":");
     if (parts.length < 3) continue;
-    const [name, type, loc] = parts;
-    if (type === "dout")
-      pins.push({ name, type: "dout", gpio: parseGpio(loc) });
-    else if (type === "din")
-      pins.push({ name, type: "din", gpio: parseGpio(loc), pull: (parts[3] ?? "none") as Pin["pull"] });
-    else if (type === "adc") {
-      const m = loc.match(/u(\d)c(\d+)/);
-      if (m) pins.push({ name, type: "adc", adcUnit: +m[1], adcChannel: +m[2] });
-    } else if (type === "pwm") {
-      const freqStr = parts[3];
-      pins.push({ name, type: "pwm", gpio: parseGpio(loc), pwmFreq: freqStr ? parseInt(freqStr) : 5000 });
-    }
+    const pin = parsePinLine(parts);
+    if (pin) pins.push(pin);
   }
   return pins;
 };
 
-const parseGpio = (s: string) => {
-  const m = s.match(/gpio(\d+)/i);
-  return m ? +m[1] : 0;
-};
+// ── Storage ────────────────────────────────────────────────────────────────
+
+export const getStorage = () => sendCommand("RS_GetStorage");
+
+function nvsStr(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+function nvsNum(v: unknown): number | undefined {
+  return v === undefined ? undefined : Number(v);
+}
+
+function parseNvsRule(r: Record<string, unknown>, i: number): Rule {
+  const rule: Rule = {
+    index: i,
+    type: typeof r.t === "string" ? r.t : "unknown",
+    raw:  JSON.stringify(r),
+  };
+  rule.src  = nvsStr(r.src);
+  rule.src2 = nvsStr(r.src2);
+  rule.dst  = nvsStr(r.dst);
+  rule.expr = nvsStr(r.expr);
+  if (Array.isArray(r.srcs)) rule.srcs = r.srcs.filter((s): s is string => typeof s === "string");
+  rule.on     = nvsNum(r.on);
+  rule.off    = nvsNum(r.off);
+  rule.delay  = nvsNum(r.delay);
+  rule.window = nvsNum(r.window);
+  rule.pa     = nvsNum(r.pa);
+  rule.pb     = nvsNum(r.pb);
+  rule.tlo    = nvsNum(r.tlo);
+  rule.thi    = nvsNum(r.thi);
+  rule.olo    = nvsNum(r.olo);
+  rule.ohi    = nvsNum(r.ohi);
+  rule.cid    = nvsNum(r.cid);
+  rule.cby    = nvsNum(r.cby);
+  rule.cbi    = nvsNum(r.cbi);
+  rule.cln    = nvsNum(r.cln);
+  if (r.inv !== undefined) rule.inv = Boolean(r.inv);
+  if (r.cxt !== undefined) rule.cxt = Boolean(r.cxt);
+  return rule;
+}
+
+/** Parse RS_GetStorage response and extract fully-populated Rule objects from the NVS JSON. */
+export function parseStorageRules(lines: string[]): Rule[] | null {
+  const configLine = lines.find((l) => l.startsWith("io_config:str:"));
+  if (!configLine) return null;
+  try {
+    const obj = JSON.parse(configLine.slice("io_config:str:".length)) as Record<string, unknown>;
+    if (!Array.isArray(obj.rules)) return null;
+    return (obj.rules as Record<string, unknown>[]).map((r, i) => parseNvsRule(r, i));
+  } catch {
+    return null;
+  }
+}
 
 // ── Rules ──────────────────────────────────────────────────────────────────
 

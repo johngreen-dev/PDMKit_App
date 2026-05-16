@@ -14,13 +14,15 @@ import {
   Panel,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useConfigStore } from "../../stores/configStore";
 import { useDeviceStore } from "../../stores/deviceStore";
 import { useCanvasStore } from "../../stores/canvasStore";
 import { nodeTypes } from "./nodes/nodeTypes";
 import { DeletableEdge } from "./edges/DeletableEdge";
 import { RuleToolbox, type ToolboxItem } from "./toolbox/RuleToolbox";
+import { NodePropertiesPanel } from "./NodePropertiesPanel";
+import { RULE_PARAM_FIELDS } from "../../lib/nodeParams";
 import type { RuleNodeData } from "./nodes/RuleNode";
 import type { ExprNodeData } from "./nodes/ExprNode";
 import type { Group } from "../../types/config";
@@ -91,6 +93,7 @@ export function LogicCanvas() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(buildStaticNodes(pins, groups));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useEffect(() => { syncNodes(nodes); }, [nodes]);
   useEffect(() => { syncEdges(edges); }, [edges]);
@@ -132,6 +135,27 @@ export function LogicCanvas() {
     [getNode],
   );
 
+  const onSelectionChange = useCallback(
+    ({ nodes: sel }: { nodes: Node[] }) => {
+      const rule = sel.find((n) => n.type === "rule");
+      setSelectedNodeId(rule?.id ?? null);
+    },
+    [],
+  );
+
+  const updateParam = useCallback(
+    (nodeId: string, key: string, value: string) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId
+            ? { ...n, data: { ...(n.data as object), params: { ...(n.data as unknown as RuleNodeData).params, [key]: value } } }
+            : n,
+        ),
+      );
+    },
+    [],
+  );
+
   // Add a rule or expression node at the centre of the visible canvas area
   const addRuleNode = useCallback(
     (item: ToolboxItem) => {
@@ -166,6 +190,9 @@ export function LogicCanvas() {
     [screenToFlowPosition],
   );
 
+  const selectedRuleData = nodes.find((n) => n.id === selectedNodeId)?.data as unknown as RuleNodeData | undefined;
+  const showPropertiesPanel = selectedRuleData !== undefined && (RULE_PARAM_FIELDS[selectedRuleData.ruleType]?.length ?? 0) > 0;
+
   return (
     <div className="flex h-full">
       <div className="flex-1 relative" ref={wrapperRef}>
@@ -176,6 +203,7 @@ export function LogicCanvas() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeDragStop={onNodeDragStop}
+          onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={{ type: "deletable", animated: true }}
@@ -207,6 +235,14 @@ export function LogicCanvas() {
           )}
         </ReactFlow>
       </div>
+      {showPropertiesPanel && selectedNodeId && selectedRuleData && (
+        <NodePropertiesPanel
+          nodeId={selectedNodeId}
+          data={selectedRuleData}
+          onParamChange={updateParam}
+          readOnly={!inSetup}
+        />
+      )}
       {inSetup && <RuleToolbox onAdd={addRuleNode} />}
     </div>
   );

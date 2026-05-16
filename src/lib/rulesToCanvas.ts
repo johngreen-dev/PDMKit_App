@@ -115,6 +115,28 @@ function addExprRule(rule: Rule, layoutIdx: number, dstId: string | null, ctx: B
   }
 }
 
+function ruleToParams(rule: Rule): Record<string, string | number> {
+  const p: Record<string, string | number> = {};
+  // CAN frame identity (cid stored as integer, displayed as hex)
+  if (rule.cid !== undefined) p.cid = "0x" + rule.cid.toString(16).toUpperCase();
+  if (rule.cby !== undefined) p.cby = rule.cby;
+  if (rule.cbi !== undefined) p.cbi = rule.cbi;
+  if (rule.cln !== undefined) p.cln = rule.cln;
+  // Thresholds / ADC mapping
+  if (rule.tlo !== undefined) p.tlo = rule.tlo;
+  if (rule.thi !== undefined) p.thi = rule.thi;
+  if (rule.olo !== undefined) p.olo = rule.olo;
+  if (rule.ohi !== undefined) p.ohi = rule.ohi;
+  // Timing
+  if (rule.on      !== undefined) p.on     = rule.on;
+  if (rule.off     !== undefined) p.off    = rule.off;
+  if (rule.delay   !== undefined) p.delay  = rule.delay;
+  if (rule.window  !== undefined) p.window = rule.window;
+  // CAN TX interval (firmware stores as pb, templates use interval)
+  if (rule.pb !== undefined) p.interval = rule.pb;
+  return p;
+}
+
 function addRuleNode(
   rule: Rule,
   layoutIdx: number,
@@ -128,7 +150,7 @@ function addRuleNode(
     ruleType: rule.type,
     label: rule.type,
     category: RULE_CATEGORIES[rule.type] ?? "combinational",
-    params: {},
+    params: ruleToParams(rule),
   };
 
   ctx.nodes.push({

@@ -2,6 +2,23 @@ import type { Node, Edge } from "@xyflow/react";
 import type { RuleNodeData } from "../components/canvas/nodes/RuleNode";
 import type { ExprNodeData } from "../components/canvas/nodes/ExprNode";
 
+// ── CAN templates ────────────────────────────────────────────────────────────
+
+type CanTemplate = (p: Record<string, string | number>, src: string, dst: string) => string;
+
+const CAN_TEMPLATES: Record<string, CanTemplate> = {
+  can_sig:  (p, _, dst) => `can_sig ${p.cid ?? "0x100"} ${p.cby ?? 0} ${p.cbi ?? 0} ${p.cln ?? 8} ${dst} ${p.tlo ?? 128}`,
+  can_thr:  (p, _, dst) => `can_thr ${p.cid ?? "0x100"} ${p.cby ?? 0} ${p.cbi ?? 0} ${p.cln ?? 8} ${dst} ${p.tlo ?? 100} ${p.thi ?? 200}`,
+  can_map:  (p, _, dst) => `can_map ${p.cid ?? "0x100"} ${p.cby ?? 0} ${p.cbi ?? 0} ${p.cln ?? 8} ${dst} ${p.tlo ?? 0} ${p.thi ?? 255} ${p.olo ?? 0} ${p.ohi ?? 100}`,
+  can_timeout: (p, _, dst) => `can_timeout ${p.cid ?? "0x100"} ${dst} ${p.window ?? 1000}`,
+  can_hrx:  (p, _, dst) => `can_hrx ${p.cid ?? "0x100"} ${dst} ${p.window ?? 1000}`,
+  can_cmd_out: (p, _, dst) => `can_cmd_out ${p.cid ?? "0x100"} ${p.cby ?? 0} ${p.tlo ?? 1} ${dst}`,
+  can_tx_st: (p, src) =>   `can_tx_st ${src} ${p.cid ?? "0x200"} ${p.interval ?? 100}`,
+  can_tx_an: (p, src) =>   `can_tx_an ${src} ${p.cid ?? "0x200"} ${p.cby ?? 0} ${p.interval ?? 100}`,
+  can_htx:  (p) =>          `can_htx ${p.cid ?? "0x200"} ${p.interval ?? 1000}`,
+  can_boff: (_, __, dst) => `can_boff ${dst}`,
+};
+
 // ── Rule spec table ─────────────────────────────────────────────────────────
 // mode: how src/dst/params are ordered in the RS_AddRule command
 //   "src_dst"    → type  src...  dst  params   (most rules)
@@ -53,18 +70,17 @@ const RULES: Record<string, RuleSpec> = {
   retry:     { mode: "src_dst", src: 1, params: [["delay", "1000"]] },
   therm_drt: { mode: "src_dst", src: 1, params: [["thi", "80"], ["tlo", "60"]] },
   watchdog:  { mode: "src_dst", src: 1, params: [["window", "5000"]] },
-  // CAN RX — dst is the output pin; CAN frame ID/fields are params
-  can_sig:     { mode: "dst_params", src: 0, params: [["cid", "0x100"], ["cby", "0"], ["cbi", "0"], ["cln", "8"], ["thi", "100"], ["tlo", "50"]] },
-  can_thr:     { mode: "dst_params", src: 0, params: [["cid", "0x100"], ["cby", "0"], ["cbi", "0"], ["cln", "8"], ["thi", "100"], ["tlo", "50"]] },
-  can_map:     { mode: "dst_params", src: 0, params: [["cid", "0x100"], ["cby", "0"], ["cbi", "0"], ["cln", "8"], ["tlo", "0"], ["thi", "255"], ["olo", "0"], ["ohi", "100"]] },
-  can_hrx:     { mode: "dst_params", src: 0, params: [["cid", "0x100"], ["window", "1000"]] },
-  can_cmd_out: { mode: "dst_params", src: 0, params: [["cid", "0x100"], ["cby", "0"], ["cbi", "0"]] },
-  can_timeout: { mode: "src_dst",    src: 1, params: [["window", "1000"]] },
-  // CAN TX — src is the pin to transmit; no output pin dst
-  can_tx_st: { mode: "src_params", src: 1, params: [["cid", "0x200"], ["cby", "0"], ["cbi", "0"], ["interval", "100"]] },
-  can_tx_an: { mode: "src_params", src: 1, params: [["cid", "0x200"], ["cby", "0"], ["cln", "8"], ["interval", "100"]] },
-  can_boff:  { mode: "src_params", src: 1, params: [["cid", "0x200"], ["cby", "0"], ["cbi", "0"]] },
-  can_htx:   { mode: "params",     src: 0, params: [["cid", "0x200"], ["interval", "1000"]] },
+  // CAN — command generation handled by CAN_TEMPLATES; entries here are only for needsDst lookup
+  can_sig:     { mode: "dst_params", src: 0, params: [] },
+  can_thr:     { mode: "dst_params", src: 0, params: [] },
+  can_map:     { mode: "dst_params", src: 0, params: [] },
+  can_hrx:     { mode: "dst_params", src: 0, params: [] },
+  can_cmd_out: { mode: "dst_params", src: 0, params: [] },
+  can_timeout: { mode: "dst_params", src: 0, params: [] },
+  can_tx_st:  { mode: "src_params", src: 1, params: [] },
+  can_tx_an:  { mode: "src_params", src: 1, params: [] },
+  can_boff:   { mode: "dst_params", src: 0, params: [] },
+  can_htx:    { mode: "params",     src: 0, params: [] },
 };
 
 type ModeParts = (srcs: string[], dst: string, pv: string[]) => string[];
@@ -91,6 +107,35 @@ function buildSingleRule(
   const tail = MODE_PARTS[spec.mode](srcs, dst, pv).join(" ");
 
   return `RS_AddRule ${type} ${tail}`.trimEnd();
+}
+
+function buildCanCmd(
+  type: string,
+  params: Record<string, string | number>,
+  node: Node,
+  nodes: Node[],
+  edges: Edge[],
+): string[] {
+  const template = CAN_TEMPLATES[type];
+  if (!template) return [];
+
+  const CAN_RX_DST = new Set(["can_sig", "can_thr", "can_map", "can_timeout", "can_hrx", "can_cmd_out", "can_boff"]);
+  const CAN_TX_SRC = new Set(["can_tx_st", "can_tx_an"]);
+
+  const srcLabel = edges
+    .filter((e) => e.target === node.id)
+    .map((e) => nodeLabel(e.source, nodes))
+    .find((s): s is string => s !== null) ?? "";
+
+  const dstLabel = edges
+    .filter((e) => e.source === node.id)
+    .map((e) => nodeLabel(e.target, nodes))
+    .find((s): s is string => s !== null) ?? "";
+
+  if (CAN_RX_DST.has(type) && !dstLabel) return [];
+  if (CAN_TX_SRC.has(type) && !srcLabel) return [];
+
+  return [`RS_AddRule ${template(params, srcLabel, dstLabel)}`];
 }
 
 // ── Expression tree ──────────────────────────────────────────────────────────
@@ -152,6 +197,10 @@ function buildExprRules(nodes: Node[], edges: Edge[]): string[] {
 function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
   const cmds: string[] = [];
   const d = node.data as unknown as RuleNodeData;
+
+  if (d.ruleType in CAN_TEMPLATES) {
+    return buildCanCmd(d.ruleType, d.params ?? {}, node, nodes, edges);
+  }
 
   const sources = edges
     .filter((e) => e.target === node.id)

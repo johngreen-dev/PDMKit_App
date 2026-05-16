@@ -61,8 +61,15 @@ export const useConfigStore = create<ConfigStore>((set) => ({
   },
 
   loadRules: async () => {
-    const lines = await proto.listRules();
-    set({ rules: proto.parseRules(lines) });
+    const lines = await proto.getStorage();
+    const fromStorage = proto.parseStorageRules(lines);
+    if (fromStorage) {
+      set({ rules: fromStorage });
+      return;
+    }
+    // Fallback: RS_GetStorage unavailable, use RS_ListRules (loses CAN params)
+    const ruleLines = await proto.listRules();
+    set({ rules: proto.parseRules(ruleLines) });
   },
 
   addPin: async (pin) => {

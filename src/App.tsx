@@ -22,7 +22,7 @@ function App() {
           {section === "groups"    && <GroupsPanel />}
           {section === "variables" && <VariablesPanel />}
           {section === "rules"     && <RulesPanel />}
-          {section === "canvas"    && (
+          {section === "canvas" && (
             <ReactFlowProvider>
               <LogicCanvas />
             </ReactFlowProvider>

@@ -14,7 +14,7 @@ import {
   Panel,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect } from "react";
 import { useConfigStore } from "../../stores/configStore";
 import { useDeviceStore } from "../../stores/deviceStore";
 import { useCanvasStore } from "../../stores/canvasStore";
@@ -93,7 +93,8 @@ export function LogicCanvas() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(buildStaticNodes(pins, groups));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const nodesRef = useRef<Node[]>([]);
+  nodesRef.current = nodes;
 
   useEffect(() => { syncNodes(nodes); }, [nodes]);
   useEffect(() => { syncEdges(edges); }, [edges]);
@@ -102,7 +103,24 @@ export function LogicCanvas() {
     const saved = loadPositions();
     const applyPos = (n: Node): Node => saved[n.id] ? { ...n, position: saved[n.id] } : n;
     const { ruleNodes, edges: ruleEdges } = rulesToCanvas(rules, pins, groups);
-    setNodes([...buildStaticNodes(pins, groups).map(applyPos), ...ruleNodes.map(applyPos)]);
+
+    // When a reload produces rule nodes with empty params (e.g. RS_GetStorage unavailable
+    // and RS_ListRules fallback used), keep the params already on the canvas so the user
+    // doesn't lose edited values and CAN fields don't revert to defaults.
+    const existingById = new Map(nodesRef.current.map((n) => [n.id, n]));
+    const mergedRuleNodes = ruleNodes.map((newNode) => {
+      if (newNode.type !== "rule") return newNode;
+      const existing = existingById.get(newNode.id);
+      if (!existing) return newNode;
+      const newParams  = (newNode.data  as unknown as RuleNodeData).params ?? {};
+      const oldParams  = (existing.data as unknown as RuleNodeData).params ?? {};
+      if (Object.keys(newParams).length === 0 && Object.keys(oldParams).length > 0) {
+        return { ...newNode, data: { ...(newNode.data as object), params: oldParams } as unknown as Record<string, unknown> };
+      }
+      return newNode;
+    });
+
+    setNodes([...buildStaticNodes(pins, groups).map(applyPos), ...mergedRuleNodes.map(applyPos)]);
     setEdges(ruleEdges);
   }, [pins, groups, rules]);
 
@@ -133,14 +151,6 @@ export function LogicCanvas() {
       }
     },
     [getNode],
-  );
-
-  const onSelectionChange = useCallback(
-    ({ nodes: sel }: { nodes: Node[] }) => {
-      const rule = sel.find((n) => n.type === "rule");
-      setSelectedNodeId(rule?.id ?? null);
-    },
-    [],
   );
 
   const updateParam = useCallback(
@@ -190,7 +200,8 @@ export function LogicCanvas() {
     [screenToFlowPosition],
   );
 
-  const selectedRuleData = nodes.find((n) => n.id === selectedNodeId)?.data as unknown as RuleNodeData | undefined;
+  const selectedNode = nodes.find((n) => n.selected && n.type === "rule");
+  const selectedRuleData = selectedNode?.data as unknown as RuleNodeData | undefined;
   const showPropertiesPanel = selectedRuleData !== undefined && (RULE_PARAM_FIELDS[selectedRuleData.ruleType]?.length ?? 0) > 0;
 
   return (
@@ -203,7 +214,6 @@ export function LogicCanvas() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeDragStop={onNodeDragStop}
-          onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={{ type: "deletable", animated: true }}
@@ -235,9 +245,9 @@ export function LogicCanvas() {
           )}
         </ReactFlow>
       </div>
-      {showPropertiesPanel && selectedNodeId && selectedRuleData && (
+      {showPropertiesPanel && selectedNode && selectedRuleData && (
         <NodePropertiesPanel
-          nodeId={selectedNodeId}
+          nodeId={selectedNode.id}
           data={selectedRuleData}
           onParamChange={updateParam}
           readOnly={!inSetup}

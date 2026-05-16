@@ -1,8 +1,10 @@
 import type { Node, Edge } from "@xyflow/react";
 import type { Pin, Group, Rule } from "../types/config";
 import type { RuleNodeData } from "../components/canvas/nodes/RuleNode";
+import { parseExpr, type ExprAST } from "./exprParser";
 
 const RULE_CATEGORIES: Record<string, string> = {
+  expr: "expression",
   direct: "combinational", and: "combinational", or: "combinational",
   not: "combinational", xor: "combinational", nand_nor: "combinational",
   on_delay: "timing", off_delay: "timing", min_on: "timing",
@@ -17,7 +19,14 @@ const RULE_CATEGORIES: Record<string, string> = {
   can_tx_st: "can_tx", can_tx_an: "can_tx", can_htx: "can_tx", can_boff: "can_tx",
 };
 
-/** Find the canvas node id for a pin or group name. */
+/** Mutable accumulator passed through tree helpers. */
+interface BuildCtx {
+  pins: Pin[];
+  groups: Group[];
+  nodes: Node[];
+  edges: Edge[];
+}
+
 function resolveNodeId(name: string, pins: Pin[], groups: Group[]): string | null {
   if (groups.some((g) => g.name === name)) return `grp_${name}`;
   const pin = pins.find((p) => p.name === name);
@@ -28,12 +37,7 @@ function resolveNodeId(name: string, pins: Pin[], groups: Group[]): string | nul
   return null;
 }
 
-function makeEdge(
-  id: string,
-  source: string,
-  target: string,
-  opts: Partial<Edge> = {},
-): Edge {
+function makeEdge(id: string, source: string, target: string, opts: Partial<Edge> = {}): Edge {
   return { id, source, target, sourceHandle: null, targetHandle: null, ...opts };
 }
 
@@ -48,9 +52,91 @@ function makeDirectEdge(srcId: string, dstId: string): Edge {
   });
 }
 
+// ── Expression tree → canvas ─────────────────────────────────────────────────
+
+function countLeaves(ast: ExprAST): number {
+  if (ast.op === "IDENT") return 1;
+  return ast.args.reduce((sum, a) => sum + countLeaves(a), 0);
+}
+
+let exprNodeSeq = 0;
+
+function astToNodes(ast: ExprAST, x: number, y: number, prefix: string, ctx: BuildCtx): string | null {
+  if (ast.op === "IDENT") return resolveNodeId(ast.name, ctx.pins, ctx.groups);
+
+  const id = `${prefix}_e${exprNodeSeq++}`;
+  ctx.nodes.push({
+    id,
+    type: "expr",
+    position: { x, y },
+    data: { op: ast.op } as unknown as Record<string, unknown>,
+  });
+
+  const leaves = ast.args.map(countLeaves);
+  const total = leaves.reduce((s, l) => s + l, 0);
+  const spread = Math.max(total * 60, 80);
+  let yTop = y - spread / 2;
+
+  ast.args.forEach((child, i) => {
+    const fraction = leaves[i] / total;
+    const childY = yTop + (fraction * spread) / 2;
+    yTop += fraction * spread;
+    const childId = astToNodes(child, x - 180, childY, prefix, ctx);
+    if (childId) {
+      ctx.edges.push(makeEdge(`e-${childId}-${id}-t${i}`, childId, id, {
+        animated: true,
+        targetHandle: `t${i}`,
+      }));
+    }
+  });
+
+  return id;
+}
+
+function addExprRule(rule: Rule, layoutIdx: number, dstId: string | null, ctx: BuildCtx): void {
+  const tokens = rule.srcs ?? (rule.src ? [rule.src] : []);
+  const ast = parseExpr(tokens.join(" "));
+  if (!ast || !dstId) return;
+
+  const rootId = astToNodes(ast, 700, 60 + layoutIdx * 120, `r${rule.index}`, ctx);
+  if (rootId) {
+    ctx.edges.push(makeEdge(`e-${rootId}-${dstId}`, rootId, dstId, { animated: true }));
+  }
+}
+
+function addRuleNode(
+  rule: Rule,
+  layoutIdx: number,
+  srcId: string | null,
+  src2Id: string | null,
+  dstId: string | null,
+  ctx: BuildCtx,
+): void {
+  const nodeId = `loaded_rule_${rule.index}`;
+  const data: RuleNodeData = {
+    ruleType: rule.type,
+    label: rule.type,
+    category: RULE_CATEGORIES[rule.type] ?? "combinational",
+    params: {},
+  };
+
+  ctx.nodes.push({
+    id: nodeId,
+    type: "rule",
+    position: { x: 480, y: 60 + layoutIdx * 90 },
+    data: data as unknown as Record<string, unknown>,
+  });
+
+  if (srcId)  ctx.edges.push(makeEdge(`e-${srcId}-${nodeId}`,  srcId,  nodeId, { animated: true }));
+  if (src2Id) ctx.edges.push(makeEdge(`e-${src2Id}-${nodeId}`, src2Id, nodeId, { animated: true }));
+  if (dstId)  ctx.edges.push(makeEdge(`e-${nodeId}-${dstId}`,  nodeId, dstId,  { animated: true }));
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
 /**
  * Convert a list of parsed rules back into React Flow nodes and edges.
- * Returns only the rule nodes and edges; static pin/group nodes are
+ * Returns only the rule/expr nodes and edges; static pin/group nodes are
  * built separately in LogicCanvas.
  */
 export function rulesToCanvas(
@@ -58,8 +144,7 @@ export function rulesToCanvas(
   pins: Pin[],
   groups: Group[],
 ): { ruleNodes: Node[]; edges: Edge[] } {
-  const ruleNodes: Node[] = [];
-  const edges: Edge[] = [];
+  const ctx: BuildCtx = { pins, groups, nodes: [], edges: [] };
 
   rules.forEach((rule, layoutIdx) => {
     const srcId  = rule.src  ? resolveNodeId(rule.src,  pins, groups) : null;
@@ -67,36 +152,13 @@ export function rulesToCanvas(
     const dstId  = rule.dst  ? resolveNodeId(rule.dst,  pins, groups) : null;
 
     if (rule.type === "direct" && srcId && dstId) {
-      edges.push(makeDirectEdge(srcId, dstId));
-      return;
-    }
-
-    // Place rule nodes in a centre column, staggered vertically
-    const nodeId = `loaded_rule_${rule.index}`;
-    const ruleNodeData: RuleNodeData = {
-      ruleType: rule.type,
-      label: rule.type,
-      category: RULE_CATEGORIES[rule.type] ?? "combinational",
-      params: {},
-    };
-
-    ruleNodes.push({
-      id: nodeId,
-      type: "rule",
-      position: { x: 480, y: 60 + layoutIdx * 90 },
-      data: ruleNodeData as unknown as Record<string, unknown>,
-    });
-
-    if (srcId) {
-      edges.push(makeEdge(`e-${srcId}-${nodeId}`, srcId, nodeId, { animated: true }));
-    }
-    if (src2Id) {
-      edges.push(makeEdge(`e-${src2Id}-${nodeId}`, src2Id, nodeId, { animated: true }));
-    }
-    if (dstId) {
-      edges.push(makeEdge(`e-${nodeId}-${dstId}`, nodeId, dstId, { animated: true }));
+      ctx.edges.push(makeDirectEdge(srcId, dstId));
+    } else if (rule.type === "expr") {
+      addExprRule(rule, layoutIdx, dstId, ctx);
+    } else {
+      addRuleNode(rule, layoutIdx, srcId, src2Id, dstId, ctx);
     }
   });
 
-  return { ruleNodes, edges };
+  return { ruleNodes: ctx.nodes, edges: ctx.edges };
 }

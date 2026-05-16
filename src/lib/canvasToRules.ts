@@ -1,5 +1,6 @@
 import type { Node, Edge } from "@xyflow/react";
 import type { RuleNodeData } from "../components/canvas/nodes/RuleNode";
+import type { ExprNodeData } from "../components/canvas/nodes/ExprNode";
 
 // ── Rule spec table ─────────────────────────────────────────────────────────
 // mode: how src/dst/params are ordered in the RS_AddRule command
@@ -90,55 +91,111 @@ function buildSingleRule(
   return `RS_AddRule ${type} ${tail}`.trimEnd();
 }
 
+// ── Expression tree ──────────────────────────────────────────────────────────
+
+function nodeLabel(nodeId: string, nodes: Node[]): string | null {
+  const n = nodes.find((x) => x.id === nodeId);
+  if (!n) return null;
+  if (n.type === "input_pin" || n.type === "output_pin" || n.type === "group") {
+    return (n.data as { label: string }).label;
+  }
+  return null;
+}
+
+/** Recursively build a boolean expression string from an expr node subtree. */
+function buildExprStr(nodeId: string, nodes: Node[], edges: Edge[]): string | null {
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+
+  const label = nodeLabel(nodeId, nodes);
+  if (label !== null) return label;
+
+  if (node.type !== "expr") return null;
+
+  const { op } = node.data as unknown as ExprNodeData;
+  const inputs = edges
+    .filter((e) => e.target === nodeId)
+    .map((e) => buildExprStr(e.source, nodes, edges))
+    .filter((s): s is string => s !== null);
+
+  if (inputs.length === 0) return null;
+
+  if (op === "NOT") {
+    const inner = inputs[0];
+    const operand = inner.includes(" ") ? "(" + inner + ")" : inner;
+    return "NOT " + operand;
+  }
+
+  if (inputs.length === 1) return inputs[0];
+  return "(" + inputs.join(" " + op + " ") + ")";
+}
+
+function buildExprRules(nodes: Node[], edges: Edge[]): string[] {
+  const cmds: string[] = [];
+  const dstNodes = nodes.filter((n) => n.type === "output_pin" || n.type === "group");
+
+  for (const dst of dstNodes) {
+    const dstLabel = (dst.data as { label: string }).label;
+    for (const e of edges.filter((ed) => ed.target === dst.id)) {
+      const src = nodes.find((n) => n.id === e.source);
+      if (src?.type !== "expr") continue;
+      const exprStr = buildExprStr(e.source, nodes, edges);
+      if (exprStr) cmds.push(`RS_AddRule expr ${dstLabel} ${exprStr}`);
+    }
+  }
+
+  return cmds;
+}
+
+function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
+  const cmds: string[] = [];
+  const d = node.data as unknown as RuleNodeData;
+
+  const sources = edges
+    .filter((e) => e.target === node.id)
+    .map((e) => nodeLabel(e.source, nodes))
+    .filter((s): s is string => s !== null);
+
+  const dests = edges
+    .filter((e) => e.source === node.id)
+    .map((e) => nodeLabel(e.target, nodes))
+    .filter((s): s is string => s !== null);
+
+  const spec = RULES[d.ruleType];
+  const needsDst = !spec || spec.mode === "src_dst" || spec.mode === "dst_params";
+
+  if (needsDst && dests.length === 0) return cmds;
+
+  const dstList = needsDst ? dests : [""];
+  for (const dst of dstList) {
+    const cmd = buildSingleRule(d.ruleType, sources, dst, d.params ?? {});
+    if (cmd) cmds.push(cmd);
+  }
+
+  return cmds;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /** Returns a list of RS_AddRule command strings derived from the canvas state. */
 export function buildRuleCommands(nodes: Node[], edges: Edge[]): string[] {
   const cmds: string[] = [];
 
-  const nodeName = (nodeId: string): string | null => {
-    const n = nodes.find((x) => x.id === nodeId);
-    if (!n) return null;
-    if (n.type === "input_pin" || n.type === "output_pin" || n.type === "group") {
-      return (n.data as { label: string }).label;
-    }
-    return null;
-  };
-
   // Direct edges (named-node → named-node, green edges)
   for (const e of edges) {
     if ((e.data as { ruleType?: string } | undefined)?.ruleType === "direct") {
-      const src = nodeName(e.source);
-      const dst = nodeName(e.target);
+      const src = nodeLabel(e.source, nodes);
+      const dst = nodeLabel(e.target, nodes);
       if (src && dst) cmds.push(`RS_AddRule direct ${src} ${dst}`);
     }
   }
 
+  // Expression trees → RS_AddRule expr
+  cmds.push(...buildExprRules(nodes, edges));
+
   // Rule nodes
   for (const node of nodes.filter((n) => n.type === "rule")) {
-    const d = node.data as unknown as RuleNodeData;
-
-    const sources = edges
-      .filter((e) => e.target === node.id)
-      .map((e) => nodeName(e.source))
-      .filter((s): s is string => s !== null);
-
-    const dests = edges
-      .filter((e) => e.source === node.id)
-      .map((e) => nodeName(e.target))
-      .filter((s): s is string => s !== null);
-
-    // CAN TX / params-only rules don't need a dest pin
-    const spec = RULES[d.ruleType];
-    const needsDst = !spec || spec.mode === "src_dst" || spec.mode === "dst_params";
-
-    if (needsDst && dests.length === 0) continue;
-
-    const dstList = needsDst ? dests : [""];
-    for (const dst of dstList) {
-      const cmd = buildSingleRule(d.ruleType, sources, dst, d.params ?? {});
-      if (cmd) cmds.push(cmd);
-    }
+    cmds.push(...buildRuleNodeCmds(node, nodes, edges));
   }
 
   return cmds;

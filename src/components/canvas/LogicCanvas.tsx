@@ -21,13 +21,13 @@ import { useCanvasStore } from "../../stores/canvasStore";
 import { nodeTypes } from "./nodes/nodeTypes";
 import { RuleToolbox, type ToolboxItem } from "./toolbox/RuleToolbox";
 import type { RuleNodeData } from "./nodes/RuleNode";
+import type { ExprNodeData } from "./nodes/ExprNode";
 import type { Group } from "../../types/config";
 import { rulesToCanvas } from "../../lib/rulesToCanvas";
 
 let nodeIdCounter = 1000;
 const nextId = () => `n${nodeIdCounter++}`;
 
-// A node type that carries a name the firmware understands (pin or group)
 type NamedNodeType = "input_pin" | "output_pin" | "group";
 
 function isDirectPair(srcType: string | undefined, dstType: string | undefined): boolean {
@@ -88,13 +88,9 @@ export function LogicCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState(buildStaticNodes(pins, groups));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Keep canvas store in sync so ConnectionBar can read it for rule generation
   useEffect(() => { syncNodes(nodes); }, [nodes]);
   useEffect(() => { syncEdges(edges); }, [edges]);
 
-  // Rebuild the full canvas whenever config changes.
-  // Rules from the device are converted back to nodes+edges; previously
-  // user-dropped rule nodes that aren't in the device config are discarded.
   useEffect(() => {
     const { ruleNodes, edges: ruleEdges } = rulesToCanvas(rules, pins, groups);
     setNodes([...buildStaticNodes(pins, groups), ...ruleNodes]);
@@ -128,34 +124,34 @@ export function LogicCanvas() {
     [getNode],
   );
 
-  const onDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
-  }, []);
+  // Add a rule or expression node at the centre of the visible canvas area
+  const addRuleNode = useCallback(
+    (item: ToolboxItem) => {
+      const bounds = wrapperRef.current?.getBoundingClientRect();
+      const cx = bounds ? bounds.left + bounds.width  / 2 : window.innerWidth  / 2;
+      const cy = bounds ? bounds.top  + bounds.height / 2 : window.innerHeight / 2;
 
-  const onDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+      const scatter = (nodeIdCounter % 7) * 30 - 90;
+      const position = screenToFlowPosition({ x: cx + scatter, y: cy + scatter });
 
-      const raw = e.dataTransfer.getData("application/pdmkit-rule");
-      if (!raw) return;
-
-      const item: ToolboxItem = JSON.parse(raw) as ToolboxItem;
-      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-
-      const newNode: Node = {
-        id: nextId(),
-        type: "rule",
-        position,
-        data: {
-          ruleType: item.ruleType,
-          label: item.label,
-          category: item.category,
-          params: {},
-        } satisfies RuleNodeData,
-      };
+      const newNode: Node = item.kind === "expr"
+        ? {
+            id: nextId(),
+            type: "expr",
+            position,
+            data: { op: item.ruleType as ExprNodeData["op"] } satisfies ExprNodeData as unknown as Record<string, unknown>,
+          }
+        : {
+            id: nextId(),
+            type: "rule",
+            position,
+            data: {
+              ruleType: item.ruleType,
+              label: item.label,
+              category: item.category,
+              params: {},
+            } satisfies RuleNodeData,
+          };
 
       setNodes((nds) => [...nds, newNode]);
     },
@@ -164,12 +160,7 @@ export function LogicCanvas() {
 
   return (
     <div className="flex h-full">
-      <div
-        className="flex-1 relative"
-        ref={wrapperRef}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-      >
+      <div className="flex-1 relative" ref={wrapperRef}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -179,7 +170,7 @@ export function LogicCanvas() {
           nodeTypes={nodeTypes}
           fitView
           colorMode="dark"
-          nodesDraggable={inSetup}
+          nodesDraggable={true}
           nodesConnectable={inSetup}
           elementsSelectable={true}
           deleteKeyCode={inSetup ? "Backspace" : null}
@@ -199,13 +190,13 @@ export function LogicCanvas() {
           {!inSetup && (
             <Panel position="top-center">
               <div className="px-3 py-1 bg-zinc-800 border border-zinc-600 rounded text-xs text-zinc-400">
-                Enter Setup Mode to edit and apply
+                Enter Setup Mode to connect nodes and apply
               </div>
             </Panel>
           )}
         </ReactFlow>
       </div>
-      <RuleToolbox />
+      <RuleToolbox onAdd={addRuleNode} />
     </div>
   );
 }

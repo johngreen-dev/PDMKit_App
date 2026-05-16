@@ -2,15 +2,17 @@ export interface ToolboxItem {
   ruleType: string;
   label: string;
   category: string;
+  kind?: "rule" | "expr";
 }
 
 const TOOLBOX_ITEMS: ToolboxItem[] = [
+  // Expression gates
+  { ruleType: "AND", label: "AND", category: "expression", kind: "expr" },
+  { ruleType: "OR",  label: "OR",  category: "expression", kind: "expr" },
+  { ruleType: "NOT", label: "NOT", category: "expression", kind: "expr" },
+  { ruleType: "XOR", label: "XOR", category: "expression", kind: "expr" },
   // Combinational
   { ruleType: "direct",   label: "Direct",   category: "combinational" },
-  { ruleType: "and",      label: "AND",       category: "combinational" },
-  { ruleType: "or",       label: "OR",        category: "combinational" },
-  { ruleType: "not",      label: "NOT",       category: "combinational" },
-  { ruleType: "xor",      label: "XOR",       category: "combinational" },
   // Timing
   { ruleType: "on_delay",  label: "On Delay",  category: "timing" },
   { ruleType: "off_delay", label: "Off Delay", category: "timing" },
@@ -50,6 +52,7 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
 ];
 
 const CATEGORY_HEADER_COLORS: Record<string, string> = {
+  expression:    "text-violet-400",
   combinational: "text-purple-400",
   timing:        "text-amber-400",
   oscillator:    "text-pink-400",
@@ -61,6 +64,7 @@ const CATEGORY_HEADER_COLORS: Record<string, string> = {
 };
 
 const CATEGORY_PILL_COLORS: Record<string, string> = {
+  expression:    "bg-violet-950 border-dashed border-violet-600 text-violet-200 hover:bg-violet-800",
   combinational: "bg-purple-900 border-purple-700 text-purple-200 hover:bg-purple-700",
   timing:        "bg-amber-900 border-amber-700 text-amber-200 hover:bg-amber-700",
   oscillator:    "bg-pink-900 border-pink-700 text-pink-200 hover:bg-pink-700",
@@ -78,17 +82,15 @@ const grouped = TOOLBOX_ITEMS.reduce<Record<string, ToolboxItem[]>>((acc, item) 
 }, {});
 
 interface Props {
-  onAdd: (item: ToolboxItem) => void;
+  readonly onAdd: (item: ToolboxItem) => void;
 }
 
 export function RuleToolbox({ onAdd }: Props) {
   return (
     <div className="w-44 shrink-0 border-l border-zinc-700 overflow-y-auto p-2 flex flex-col gap-3">
       <div className="text-zinc-400 text-[10px] uppercase tracking-wide font-semibold px-1">
-        Rule Blocks
-        <span className="block text-zinc-600 normal-case tracking-normal font-normal mt-0.5">
-          Click to add
-        </span>
+        {"Blocks"}
+        <span className="block text-zinc-600 normal-case tracking-normal font-normal mt-0.5">{"Click to add"}</span>
       </div>
 
       {Object.entries(grouped).map(([cat, items]) => (

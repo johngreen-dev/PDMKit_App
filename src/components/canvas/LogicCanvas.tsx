@@ -19,6 +19,7 @@ import { useConfigStore } from "../../stores/configStore";
 import { useDeviceStore } from "../../stores/deviceStore";
 import { useCanvasStore } from "../../stores/canvasStore";
 import { nodeTypes } from "./nodes/nodeTypes";
+import { DeletableEdge } from "./edges/DeletableEdge";
 import { RuleToolbox, type ToolboxItem } from "./toolbox/RuleToolbox";
 import type { RuleNodeData } from "./nodes/RuleNode";
 import type { ExprNodeData } from "./nodes/ExprNode";
@@ -27,6 +28,8 @@ import { rulesToCanvas } from "../../lib/rulesToCanvas";
 
 let nodeIdCounter = 1000;
 const nextId = () => `n${nodeIdCounter++}`;
+
+const edgeTypes = { deletable: DeletableEdge };
 
 type NamedNodeType = "input_pin" | "output_pin" | "group";
 
@@ -109,11 +112,9 @@ export function LogicCanvas() {
           target: connection.target ?? "",
           sourceHandle: connection.sourceHandle ?? null,
           targetHandle: connection.targetHandle ?? null,
-          label: "direct",
+          type: "deletable",
           animated: true,
           style: { stroke: "#22c55e", strokeWidth: 2 },
-          labelStyle: { fill: "#22c55e", fontSize: 10 },
-          labelBgStyle: { fill: "#18181b" },
           data: { ruleType: "direct" },
         };
         setEdges((eds) => addEdge(directEdge, eds));
@@ -168,6 +169,8 @@ export function LogicCanvas() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          defaultEdgeOptions={{ type: "deletable", animated: true }}
           fitView
           colorMode="dark"
           nodesDraggable={true}

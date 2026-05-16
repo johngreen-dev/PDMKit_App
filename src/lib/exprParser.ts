@@ -14,10 +14,17 @@ class Parser {
     return false;
   }
 
-  // expr := term (OR term)*
+  // expr := xorExpr (OR xorExpr)*
   parseExpr(): ExprAST {
+    let node = this.parseXor();
+    while (this.eat("OR")) node = { op: "OR", args: [node, this.parseXor()] };
+    return node;
+  }
+
+  // xorExpr := term (XOR term)*
+  private parseXor(): ExprAST {
     let node = this.parseTerm();
-    while (this.eat("OR")) node = { op: "OR", args: [node, this.parseTerm()] };
+    while (this.eat("XOR")) node = { op: "XOR", args: [node, this.parseTerm()] };
     return node;
   }
 
@@ -28,10 +35,9 @@ class Parser {
     return node;
   }
 
-  // factor := NOT factor | XOR factor factor | atom
+  // factor := NOT factor | atom
   private parseFactor(): ExprAST {
     if (this.eat("NOT")) return { op: "NOT", args: [this.parseFactor()] };
-    if (this.eat("XOR")) return { op: "XOR", args: [this.parseFactor(), this.parseFactor()] };
     return this.parseAtom();
   }
 

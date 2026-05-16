@@ -25,6 +25,7 @@ import type { RuleNodeData } from "./nodes/RuleNode";
 import type { ExprNodeData } from "./nodes/ExprNode";
 import type { Group } from "../../types/config";
 import { rulesToCanvas } from "../../lib/rulesToCanvas";
+import { loadPositions, persistPositions } from "../../lib/canvasPositions";
 
 let nodeIdCounter = 1000;
 const nextId = () => `n${nodeIdCounter++}`;
@@ -95,10 +96,16 @@ export function LogicCanvas() {
   useEffect(() => { syncEdges(edges); }, [edges]);
 
   useEffect(() => {
+    const saved = loadPositions();
+    const applyPos = (n: Node): Node => saved[n.id] ? { ...n, position: saved[n.id] } : n;
     const { ruleNodes, edges: ruleEdges } = rulesToCanvas(rules, pins, groups);
-    setNodes([...buildStaticNodes(pins, groups), ...ruleNodes]);
+    setNodes([...buildStaticNodes(pins, groups).map(applyPos), ...ruleNodes.map(applyPos)]);
     setEdges(ruleEdges);
   }, [pins, groups, rules]);
+
+  const onNodeDragStop = useCallback((_: React.MouseEvent, _node: Node, draggedNodes: Node[]) => {
+    persistPositions(draggedNodes.map((n) => ({ id: n.id, position: n.position })));
+  }, []);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -168,6 +175,7 @@ export function LogicCanvas() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onNodeDragStop={onNodeDragStop}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={{ type: "deletable", animated: true }}
@@ -199,7 +207,7 @@ export function LogicCanvas() {
           )}
         </ReactFlow>
       </div>
-      <RuleToolbox onAdd={addRuleNode} />
+      {inSetup && <RuleToolbox onAdd={addRuleNode} />}
     </div>
   );
 }

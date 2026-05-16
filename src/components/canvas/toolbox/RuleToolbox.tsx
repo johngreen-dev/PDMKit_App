@@ -9,10 +9,10 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
   // Expression gates
   { ruleType: "AND", label: "AND", category: "expression", kind: "expr" },
   { ruleType: "OR",  label: "OR",  category: "expression", kind: "expr" },
-  { ruleType: "NOT", label: "NOT", category: "expression", kind: "expr" },
   { ruleType: "XOR", label: "XOR", category: "expression", kind: "expr" },
+  { ruleType: "NOT", label: "NOT", category: "expression", kind: "expr" },
   // Combinational
-  { ruleType: "direct",   label: "Direct",   category: "combinational" },
+  { ruleType: "direct", label: "Direct", category: "combinational" },
   // Timing
   { ruleType: "on_delay",  label: "On Delay",  category: "timing" },
   { ruleType: "off_delay", label: "Off Delay", category: "timing" },

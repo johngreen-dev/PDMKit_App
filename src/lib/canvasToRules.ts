@@ -4,12 +4,13 @@ import type { ExprNodeData } from "../components/canvas/nodes/ExprNode";
 
 // ── Rule spec table ─────────────────────────────────────────────────────────
 // mode: how src/dst/params are ordered in the RS_AddRule command
-//   "src_dst"   → type  src...  dst  params   (most rules)
-//   "dst_params"→ type  dst     params         (CAN RX that pull from CAN bus)
-//   "src_params"→ type  src     params         (CAN TX — dst is the CAN frame)
-//   "params"    → type  params                 (can_htx — no pin src or dst)
+//   "src_dst"    → type  src...  dst  params   (most rules)
+//   "slash_src"  → type  src1/src2  dst         (xor, sr_latch — firmware uses slash separator)
+//   "dst_params" → type  dst     params         (CAN RX that pull from CAN bus)
+//   "src_params" → type  src     params         (CAN TX — dst is the CAN frame)
+//   "params"     → type  params                 (can_htx — no pin src or dst)
 
-type RuleMode = "src_dst" | "dst_params" | "src_params" | "params";
+type RuleMode = "src_dst" | "slash_src" | "dst_params" | "src_params" | "params";
 
 interface RuleSpec {
   mode: RuleMode;
@@ -23,7 +24,7 @@ const RULES: Record<string, RuleSpec> = {
   not:       { mode: "src_dst", src: 1, params: [] },
   and:       { mode: "src_dst", src: 2, params: [] },
   or:        { mode: "src_dst", src: 2, params: [] },
-  xor:       { mode: "src_dst", src: 2, params: [] },
+  xor:       { mode: "slash_src", src: 2, params: [] },
   nand_nor:  { mode: "src_dst", src: 2, params: [] },
   // Timing
   on_delay:  { mode: "src_dst", src: 1, params: [["delay", "100"]] },
@@ -42,7 +43,7 @@ const RULES: Record<string, RuleSpec> = {
   window:    { mode: "src_dst", src: 1, params: [["tlo", "1000"], ["thi", "3000"]] },
   adc_map:   { mode: "src_dst", src: 1, params: [["tlo", "0"], ["thi", "3300"], ["olo", "0"], ["ohi", "100"]] },
   // Stateful
-  sr_latch:  { mode: "src_dst", src: 2, params: [] },
+  sr_latch:  { mode: "slash_src", src: 2, params: [] },
   toggle:    { mode: "src_dst", src: 1, params: [] },
   interlock: { mode: "src_dst", src: 2, params: [] },
   prio_or:   { mode: "src_dst", src: 2, params: [] },
@@ -70,6 +71,7 @@ type ModeParts = (srcs: string[], dst: string, pv: string[]) => string[];
 
 const MODE_PARTS: Record<RuleMode, ModeParts> = {
   src_dst:    (srcs, dst, pv)  => [...srcs, dst, ...pv],
+  slash_src:  (srcs, dst, pv)  => [srcs.slice(0, 2).join("/"), dst, ...pv],
   dst_params: (_s,   dst, pv)  => [dst, ...pv],
   src_params: (srcs, _d,  pv)  => [...srcs, ...pv],
   params:     (_s,   _d,  pv)  => pv,

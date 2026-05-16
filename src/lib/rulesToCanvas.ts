@@ -59,12 +59,23 @@ function countLeaves(ast: ExprAST): number {
   return ast.args.reduce((sum, a) => sum + countLeaves(a), 0);
 }
 
-let exprNodeSeq = 0;
-
-function astToNodes(ast: ExprAST, x: number, y: number, prefix: string, ctx: BuildCtx): string | null {
+/**
+ * Recursively convert an expression AST into ReactFlow nodes/edges.
+ * `path` encodes the position in the tree (e.g. "n", "n0", "n1", "n00")
+ * so the same expression always produces the same node IDs — stable for
+ * position persistence.
+ */
+function astToNodes(
+  ast: ExprAST,
+  x: number,
+  y: number,
+  prefix: string,
+  ctx: BuildCtx,
+  path = "n",
+): string | null {
   if (ast.op === "IDENT") return resolveNodeId(ast.name, ctx.pins, ctx.groups);
 
-  const id = `${prefix}_e${exprNodeSeq++}`;
+  const id = `${prefix}_${path}`;
   ctx.nodes.push({
     id,
     type: "expr",
@@ -81,7 +92,7 @@ function astToNodes(ast: ExprAST, x: number, y: number, prefix: string, ctx: Bui
     const fraction = leaves[i] / total;
     const childY = yTop + (fraction * spread) / 2;
     yTop += fraction * spread;
-    const childId = astToNodes(child, x - 180, childY, prefix, ctx);
+    const childId = astToNodes(child, x - 180, childY, prefix, ctx, `${path}${i}`);
     if (childId) {
       ctx.edges.push(makeEdge(`e-${childId}-${id}-t${i}`, childId, id, {
         animated: true,

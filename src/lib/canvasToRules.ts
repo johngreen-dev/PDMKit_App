@@ -217,18 +217,18 @@ function buildExprRules(nodes: Node[], edges: Edge[]): string[] {
     }
   }
 
-  // Expr nodes connected only to a CAN TX block (no named output) need a virtual
-  // intermediate signal so the CAN TX command has something to reference.
+  // Expr nodes that drive a rule block (flasher, timing, CAN TX, etc.) need a virtual
+  // intermediate signal so the downstream rule has a signal name to reference.
+  // Pure-intermediate nodes (all outputs feed other expr nodes) are skipped — their
+  // sub-expression is already inlined by the parent node's buildExprStr recursion.
   for (const node of nodes.filter((n) => n.type === "expr")) {
     const outEdges = edges.filter((e) => e.source === node.id);
-    const hasNamedDst = outEdges.some((e) => {
-      const t = nodes.find((x) => x.id === e.target);
-      return t?.type === "output_pin" || t?.type === "group";
-    });
-    if (hasNamedDst) continue;
+    if (outEdges.length === 0) continue;
 
-    const hasCanTxDst = outEdges.some((e) => isCanTxNode(e.target, nodes));
-    if (!hasCanTxDst) continue;
+    if (outEdges.every((e) => nodes.find((x) => x.id === e.target)?.type === "expr")) continue;
+
+    const hasRuleDst = outEdges.some((e) => nodes.find((x) => x.id === e.target)?.type === "rule");
+    if (!hasRuleDst) continue;
 
     const exprStr = buildExprStr(node.id, nodes, edges);
     if (exprStr) cmds.push(`RS_AddRule expr _virt_${node.id} ${exprStr}`);
@@ -238,12 +238,14 @@ function buildExprRules(nodes: Node[], edges: Edge[]): string[] {
 }
 
 /** Resolves the signal label for an edge's source node.
- *  Named nodes return their label; CAN RX rule nodes return their virtual output name. */
-function resolveSourceLabel(sourceId: string, nodes: Node[]): string | null {
+ *  Named nodes return their label; CAN RX rule nodes and expr gate nodes return a virtual signal name. */
+function resolveSourceLabel(sourceId: string, nodes: Node[], edges: Edge[]): string | null {
   const named = nodeLabel(sourceId, nodes);
   if (named !== null) return named;
   const srcNode = nodes.find((n) => n.id === sourceId);
-  if (srcNode?.type !== "rule") return null;
+  if (!srcNode) return null;
+  if (srcNode.type === "expr") return `_virt_${sourceId}`;
+  if (srcNode.type !== "rule") return null;
   const srcData = srcNode.data as unknown as RuleNodeData;
   return srcData.category === "can_rx" ? `_virt_${sourceId}` : null;
 }
@@ -263,7 +265,7 @@ function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
 
   const sources = edges
     .filter((e) => e.target === node.id)
-    .map((e) => resolveSourceLabel(e.source, nodes))
+    .map((e) => resolveSourceLabel(e.source, nodes, edges))
     .filter((s): s is string => s !== null);
 
   const dests = edges

@@ -127,10 +127,20 @@ function buildCanCmd(
     .map((e) => nodeLabel(e.source, nodes))
     .find((s): s is string => s !== null) ?? "";
 
-  const dstLabel = edges
+  // For CAN RX: resolve dst from named nodes first; if the outgoing edge targets
+  // another rule node instead, emit a virtual intermediate signal named after this node.
+  let dstLabel = edges
     .filter((e) => e.source === node.id)
     .map((e) => nodeLabel(e.target, nodes))
     .find((s): s is string => s !== null) ?? "";
+
+  if (!dstLabel && CAN_RX_DST.has(type)) {
+    const hasRuleDst = edges.some((e) => {
+      if (e.source !== node.id) return false;
+      return nodes.find((n) => n.id === e.target)?.type === "rule";
+    });
+    if (hasRuleDst) dstLabel = `_virt_${node.id}`;
+  }
 
   if (CAN_RX_DST.has(type) && !dstLabel) return [];
   if (CAN_TX_SRC.has(type) && !srcLabel) return [];
@@ -204,7 +214,17 @@ function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
 
   const sources = edges
     .filter((e) => e.target === node.id)
-    .map((e) => nodeLabel(e.source, nodes))
+    .map((e) => {
+      const named = nodeLabel(e.source, nodes);
+      if (named !== null) return named;
+      // CAN RX rule node wired directly as a source → its virtual output signal
+      const srcNode = nodes.find((n) => n.id === e.source);
+      if (srcNode?.type === "rule") {
+        const srcData = srcNode.data as unknown as RuleNodeData;
+        if (srcData.category === "can_rx") return `_virt_${e.source}`;
+      }
+      return null;
+    })
     .filter((s): s is string => s !== null);
 
   const dests = edges

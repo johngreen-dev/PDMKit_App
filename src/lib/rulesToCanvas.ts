@@ -195,5 +195,24 @@ export function rulesToCanvas(
     }
   });
 
+  // Second pass: link rule nodes connected via virtual intermediate signals.
+  // A CAN RX rule with dst="_virt_X" drives any rule whose src matches "_virt_X".
+  const virtProducer = new Map<string, string>(); // virtName → nodeId of the producing rule
+  rules.forEach((rule) => {
+    if (rule.dst?.startsWith("_virt_")) {
+      virtProducer.set(rule.dst, `loaded_rule_${rule.index}`);
+    }
+  });
+  rules.forEach((rule) => {
+    const virtName = rule.src ?? rule.srcs?.[0];
+    if (virtName?.startsWith("_virt_")) {
+      const srcNodeId = virtProducer.get(virtName);
+      if (srcNodeId) {
+        const dstNodeId = `loaded_rule_${rule.index}`;
+        ctx.edges.push(makeEdge(`e-${srcNodeId}-${dstNodeId}`, srcNodeId, dstNodeId, { animated: true }));
+      }
+    }
+  });
+
   return { ruleNodes: ctx.nodes, edges: ctx.edges };
 }

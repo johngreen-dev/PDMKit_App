@@ -36,12 +36,10 @@ export const useConfigStore = create<ConfigStore>((set) => ({
 
   loadAll: async () => {
     set({ loading: true });
-    await Promise.all([
-      useConfigStore.getState().loadPins(),
-      useConfigStore.getState().loadGroups(),
-      useConfigStore.getState().loadVars(),
-      useConfigStore.getState().loadRules(),
-    ]);
+    await useConfigStore.getState().loadPins();
+    await useConfigStore.getState().loadGroups();
+    await useConfigStore.getState().loadVars();
+    await useConfigStore.getState().loadRules();
     set({ loading: false });
   },
 

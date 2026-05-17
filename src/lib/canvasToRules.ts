@@ -122,10 +122,26 @@ function buildCanCmd(
   const CAN_RX_DST = new Set(["can_sig", "can_thr", "can_map", "can_timeout", "can_hrx", "can_cmd_out", "can_boff"]);
   const CAN_TX_SRC = new Set(["can_tx_st", "can_tx_an"]);
 
-  const srcLabel = edges
+  // For CAN TX: if the source is a rule/expr node, reuse its named output signal
+  // (so no extra rule is needed) or fall back to a virtual intermediate signal.
+  let srcLabel = edges
     .filter((e) => e.target === node.id)
     .map((e) => nodeLabel(e.source, nodes))
     .find((s): s is string => s !== null) ?? "";
+
+  if (!srcLabel && CAN_TX_SRC.has(type)) {
+    const srcEdge = edges.find((e) => e.target === node.id);
+    if (srcEdge) {
+      const srcNode = nodes.find((n) => n.id === srcEdge.source);
+      if (srcNode?.type === "rule" || srcNode?.type === "expr") {
+        const upstreamNamedOut = edges
+          .filter((e) => e.source === srcNode.id && e.target !== node.id)
+          .map((e) => nodeLabel(e.target, nodes))
+          .find((s): s is string => s !== null);
+        srcLabel = upstreamNamedOut ?? `_virt_${srcNode.id}`;
+      }
+    }
+  }
 
   // For CAN RX: resolve dst from named nodes first; if the outgoing edge targets
   // another rule node instead, emit a virtual intermediate signal named after this node.
@@ -201,7 +217,40 @@ function buildExprRules(nodes: Node[], edges: Edge[]): string[] {
     }
   }
 
+  // Expr nodes connected only to a CAN TX block (no named output) need a virtual
+  // intermediate signal so the CAN TX command has something to reference.
+  for (const node of nodes.filter((n) => n.type === "expr")) {
+    const outEdges = edges.filter((e) => e.source === node.id);
+    const hasNamedDst = outEdges.some((e) => {
+      const t = nodes.find((x) => x.id === e.target);
+      return t?.type === "output_pin" || t?.type === "group";
+    });
+    if (hasNamedDst) continue;
+
+    const hasCanTxDst = outEdges.some((e) => isCanTxNode(e.target, nodes));
+    if (!hasCanTxDst) continue;
+
+    const exprStr = buildExprStr(node.id, nodes, edges);
+    if (exprStr) cmds.push(`RS_AddRule expr _virt_${node.id} ${exprStr}`);
+  }
+
   return cmds;
+}
+
+/** Resolves the signal label for an edge's source node.
+ *  Named nodes return their label; CAN RX rule nodes return their virtual output name. */
+function resolveSourceLabel(sourceId: string, nodes: Node[]): string | null {
+  const named = nodeLabel(sourceId, nodes);
+  if (named !== null) return named;
+  const srcNode = nodes.find((n) => n.id === sourceId);
+  if (srcNode?.type !== "rule") return null;
+  const srcData = srcNode.data as unknown as RuleNodeData;
+  return srcData.category === "can_rx" ? `_virt_${sourceId}` : null;
+}
+
+function isCanTxNode(nodeId: string, nodes: Node[]): boolean {
+  const n = nodes.find((x) => x.id === nodeId);
+  return n?.type === "rule" && (n.data as unknown as RuleNodeData).category === "can_tx";
 }
 
 function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
@@ -214,23 +263,20 @@ function buildRuleNodeCmds(node: Node, nodes: Node[], edges: Edge[]): string[] {
 
   const sources = edges
     .filter((e) => e.target === node.id)
-    .map((e) => {
-      const named = nodeLabel(e.source, nodes);
-      if (named !== null) return named;
-      // CAN RX rule node wired directly as a source → its virtual output signal
-      const srcNode = nodes.find((n) => n.id === e.source);
-      if (srcNode?.type === "rule") {
-        const srcData = srcNode.data as unknown as RuleNodeData;
-        if (srcData.category === "can_rx") return `_virt_${e.source}`;
-      }
-      return null;
-    })
+    .map((e) => resolveSourceLabel(e.source, nodes))
     .filter((s): s is string => s !== null);
 
   const dests = edges
     .filter((e) => e.source === node.id)
     .map((e) => nodeLabel(e.target, nodes))
     .filter((s): s is string => s !== null);
+
+  // If this rule has no named output but feeds a CAN TX block directly,
+  // emit to a virtual signal so the CAN TX has something to reference.
+  if (dests.length === 0) {
+    const hasCanTxDst = edges.some((e) => e.source === node.id && isCanTxNode(e.target, nodes));
+    if (hasCanTxDst) dests.push(`_virt_${node.id}`);
+  }
 
   const spec = RULES[d.ruleType];
   const needsDst = !spec || spec.mode === "src_dst" || spec.mode === "dst_params";

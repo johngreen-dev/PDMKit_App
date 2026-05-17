@@ -82,13 +82,6 @@ pub fn send_command(
     let cmd = format!("{}\n", command.trim());
     port.write_all(cmd.as_bytes()).map_err(|e| e.to_string())?;
     port.flush().map_err(|e| e.to_string())?;
-
-    // Clone the port for reading (serialport boxes are not Clone, so use try_clone)
-    drop(s); // release lock while reading
-
-    // Re-acquire to get a reader reference
-    let mut s = state.lock();
-    let port = s.port.as_mut().ok_or("Not connected")?;
     let mut reader = BufReader::new(port.try_clone().map_err(|e| e.to_string())?);
 
     let mut lines: Vec<String> = Vec::new();

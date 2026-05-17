@@ -104,14 +104,26 @@ function astToNodes(
   return id;
 }
 
-function addExprRule(rule: Rule, layoutIdx: number, dstId: string | null, ctx: BuildCtx): void {
+function addExprRule(
+  rule: Rule,
+  layoutIdx: number,
+  dstId: string | null,
+  ctx: BuildCtx,
+  virtProducer?: Map<string, string>,
+): void {
   const tokens = rule.srcs ?? (rule.src ? [rule.src] : []);
-  const ast = parseExpr(tokens.join(" "));
-  if (!ast || !dstId) return;
+  const exprStr = tokens.length > 0 ? tokens.join(" ") : (rule.expr ?? "");
+  const ast = parseExpr(exprStr);
+  const isVirtDst = !dstId && rule.dst?.startsWith("_virt_");
+  if (!ast || (!dstId && !isVirtDst)) return;
 
   const rootId = astToNodes(ast, 700, 60 + layoutIdx * 120, `r${rule.index}`, ctx);
-  if (rootId) {
+  if (!rootId) return;
+
+  if (dstId) {
     ctx.edges.push(makeEdge(`e-${rootId}-${dstId}`, rootId, dstId, { animated: true }));
+  } else if (isVirtDst && virtProducer) {
+    virtProducer.set(rule.dst!, rootId);
   }
 }
 
@@ -181,28 +193,32 @@ export function rulesToCanvas(
 ): { ruleNodes: Node[]; edges: Edge[] } {
   const ctx: BuildCtx = { pins, groups, nodes: [], edges: [] };
 
+  // virtProducer maps a "_virt_X" signal name → the canvas nodeId that produces it.
+  // Built during the first pass so the second pass can draw cross-rule edges.
+  const virtProducer = new Map<string, string>();
+
   rules.forEach((rule, layoutIdx) => {
-    const srcId  = rule.src  ? resolveNodeId(rule.src,  pins, groups) : null;
-    const src2Id = rule.src2 ? resolveNodeId(rule.src2, pins, groups) : null;
+    const src  = rule.src  ?? rule.srcs?.[0];
+    const src2 = rule.src2 ?? rule.srcs?.[1];
+    const srcId  = src  ? resolveNodeId(src,  pins, groups) : null;
+    const src2Id = src2 ? resolveNodeId(src2, pins, groups) : null;
     const dstId  = rule.dst  ? resolveNodeId(rule.dst,  pins, groups) : null;
 
     if (rule.type === "direct" && srcId && dstId) {
       ctx.edges.push(makeDirectEdge(srcId, dstId));
     } else if (rule.type === "expr") {
-      addExprRule(rule, layoutIdx, dstId, ctx);
+      // addExprRule registers virtual dsts in virtProducer when the dst can't resolve as a pin/group
+      addExprRule(rule, layoutIdx, dstId, ctx, virtProducer);
     } else {
       addRuleNode(rule, layoutIdx, srcId, src2Id, dstId, ctx);
+      if (rule.dst?.startsWith("_virt_")) {
+        virtProducer.set(rule.dst, `loaded_rule_${rule.index}`);
+      }
     }
   });
 
-  // Second pass: link rule nodes connected via virtual intermediate signals.
-  // A CAN RX rule with dst="_virt_X" drives any rule whose src matches "_virt_X".
-  const virtProducer = new Map<string, string>(); // virtName → nodeId of the producing rule
-  rules.forEach((rule) => {
-    if (rule.dst?.startsWith("_virt_")) {
-      virtProducer.set(rule.dst, `loaded_rule_${rule.index}`);
-    }
-  });
+  // Second pass: link nodes connected via virtual intermediate signals.
+  // Handles CAN RX → rule, rule → CAN TX, and expr → CAN TX chains.
   rules.forEach((rule) => {
     const virtName = rule.src ?? rule.srcs?.[0];
     if (virtName?.startsWith("_virt_")) {

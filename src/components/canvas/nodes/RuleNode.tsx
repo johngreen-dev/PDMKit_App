@@ -52,7 +52,7 @@ export function RuleNode({ id, data }: NodeProps) {
           ×
         </button>
       )}
-      <Handle type="target" position={Position.Left} className="!bg-zinc-400 !w-2 !h-2" />
+      {d.category !== "can_rx" && <Handle type="target" position={Position.Left} className="!bg-zinc-400 !w-2 !h-2" />}
       <div className="text-[9px] opacity-60 uppercase tracking-wide mb-0.5">{catLabel}</div>
       <div className="font-mono font-bold text-xs">{d.label}</div>
       {d.params && Object.entries(d.params).length > 0 && (
@@ -64,7 +64,7 @@ export function RuleNode({ id, data }: NodeProps) {
           ))}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!bg-zinc-400 !w-2 !h-2" />
+      {d.category !== "can_tx" && <Handle type="source" position={Position.Right} className="!bg-zinc-400 !w-2 !h-2" />}
     </div>
   );
 }

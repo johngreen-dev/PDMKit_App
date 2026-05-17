@@ -23,7 +23,7 @@ export const RULE_PARAM_FIELDS: Record<string, ParamField[]> = {
   debounce:  [n("delay", "Stable window",  "ms", "20")],
   // Oscillator
   flasher:   [n("on", "On time", "ms", "500"), n("off", "Off time", "ms", "500")],
-  hazard:    [n("on", "On time", "ms", "500"), n("off", "Off time", "ms", "500")],
+  hazard:    [n("on", "On time", "ms", "500"), n("off", "Off time", "ms", "500"), n("count", "Pulse count", undefined, "3", 1)],
   burst:     [n("on", "Pulse on", "ms", "100"), n("off", "Pulse off", "ms", "100"), n("count", "Count", undefined, "3", 1)],
   pwm_out:   [n("freq", "Frequency", "Hz", "1000", 1), n("duty", "Duty cycle", "%", "50", 0, 100)],
   // Threshold

@@ -3,6 +3,7 @@ export interface ToolboxItem {
   label: string;
   category: string;
   kind?: "rule" | "expr";
+  disabled?: boolean;
 }
 
 const TOOLBOX_ITEMS: ToolboxItem[] = [
@@ -13,31 +14,31 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
   { ruleType: "NOT", label: "NOT", category: "expression", kind: "expr" },
   // Combinational
   { ruleType: "direct", label: "Direct", category: "combinational" },
-  // Timing
-  { ruleType: "on_delay",  label: "On Delay",  category: "timing" },
-  { ruleType: "off_delay", label: "Off Delay", category: "timing" },
-  { ruleType: "min_on",    label: "Min On",    category: "timing" },
-  { ruleType: "one_shot",  label: "One Shot",  category: "timing" },
-  { ruleType: "debounce",  label: "Debounce",  category: "timing" },
+  // Timing — not yet implemented in firmware
+  { ruleType: "on_delay",  label: "On Delay",  category: "timing",  disabled: true },
+  { ruleType: "off_delay", label: "Off Delay", category: "timing",  disabled: true },
+  { ruleType: "min_on",    label: "Min On",    category: "timing",  disabled: true },
+  { ruleType: "one_shot",  label: "One Shot",  category: "timing",  disabled: true },
+  { ruleType: "debounce",  label: "Debounce",  category: "timing",  disabled: true },
   // Oscillator
   { ruleType: "flasher",  label: "Flasher",   category: "oscillator" },
   { ruleType: "hazard",   label: "Hazard",    category: "oscillator" },
-  { ruleType: "burst",    label: "Burst",     category: "oscillator" },
+  { ruleType: "burst",    label: "Burst",     category: "oscillator", disabled: true },
   { ruleType: "pwm_out",  label: "PWM Out",   category: "oscillator" },
   // Threshold
   { ruleType: "threshold",  label: "Threshold",  category: "threshold" },
   { ruleType: "hysteresis", label: "Hysteresis", category: "threshold" },
-  { ruleType: "window",     label: "Window",     category: "threshold" },
+  { ruleType: "window",     label: "Window",     category: "threshold", disabled: true },
   { ruleType: "adc_map",    label: "ADC Map",    category: "threshold" },
   // Stateful
   { ruleType: "sr_latch",   label: "SR Latch",   category: "stateful" },
   { ruleType: "toggle",     label: "Toggle",     category: "stateful" },
-  { ruleType: "interlock",  label: "Interlock",  category: "stateful" },
-  { ruleType: "prio_or",    label: "Priority OR",category: "stateful" },
+  { ruleType: "interlock",  label: "Interlock",  category: "stateful", disabled: true },
+  { ruleType: "prio_or",    label: "Priority OR",category: "stateful", disabled: true },
   { ruleType: "n_press",    label: "N Press",    category: "stateful" },
   // Protective
-  { ruleType: "oc_latch",   label: "OC Latch",   category: "protective" },
-  { ruleType: "retry",      label: "Retry",      category: "protective" },
+  { ruleType: "oc_latch",   label: "OC Latch",   category: "protective", disabled: true },
+  { ruleType: "retry",      label: "Retry",      category: "protective", disabled: true },
   { ruleType: "watchdog",   label: "Watchdog",   category: "protective" },
   // CAN RX
   { ruleType: "can_sig",     label: "CAN Signal",  category: "can_rx" },
@@ -102,9 +103,14 @@ export function RuleToolbox({ onAdd }: Props) {
             <button
               key={item.ruleType}
               type="button"
-              onClick={() => onAdd(item)}
-              title={`Add ${item.label}`}
-              className={`px-2 py-1.5 rounded border text-xs text-left cursor-pointer select-none transition-colors ${CATEGORY_PILL_COLORS[cat] ?? "bg-zinc-800 border-zinc-600 text-zinc-300"}`}
+              onClick={item.disabled ? undefined : () => onAdd(item)}
+              disabled={item.disabled}
+              title={item.disabled ? `${item.label} — not yet implemented` : `Add ${item.label}`}
+              className={
+                item.disabled
+                  ? "px-2 py-1.5 rounded border text-xs text-left select-none opacity-35 cursor-not-allowed bg-zinc-800 border-zinc-700 text-zinc-500"
+                  : `px-2 py-1.5 rounded border text-xs text-left cursor-pointer select-none transition-colors ${CATEGORY_PILL_COLORS[cat] ?? "bg-zinc-800 border-zinc-600 text-zinc-300"}`
+              }
             >
               {item.label}
             </button>

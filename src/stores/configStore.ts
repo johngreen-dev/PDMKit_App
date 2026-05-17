@@ -67,7 +67,10 @@ export const useConfigStore = create<ConfigStore>((set) => ({
       set({ rules: fromStorage });
       return;
     }
-    // Fallback: RS_GetStorage unavailable, use RS_ListRules (loses CAN params)
+    // RS_GetStorage failed (may be called while device is in setup mode, or NVS is empty).
+    // Only fall back to RS_ListRules if we have no rules yet — avoids overwriting
+    // correctly-loaded rules (with CAN params) with the param-less RS_ListRules format.
+    if (useConfigStore.getState().rules.length > 0) return;
     const ruleLines = await proto.listRules();
     set({ rules: proto.parseRules(ruleLines) });
   },

@@ -36,7 +36,9 @@ export function ConnectionBar() {
     const lines = await startSetup();
     appendLog(lines.join(" "));
     setInSetup(true);
-    await loadAll();
+    // Do NOT call loadAll() here — RS_GetStorage is unreliable in setup mode and
+    // would overwrite correctly-loaded CAN params with param-less fallback data.
+    // The initial connect already loaded everything we need.
   };
 
   const handleSave = async () => {
@@ -79,6 +81,7 @@ export function ConnectionBar() {
       <span className="font-bold text-blue-400 mr-2 tracking-wide">PDMKit</span>
 
       <select
+        title="Serial port"
         className="bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-xs w-40 disabled:opacity-50"
         value={selectedPort}
         onChange={(e) => selectPort(e.target.value)}

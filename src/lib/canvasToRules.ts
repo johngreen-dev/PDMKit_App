@@ -51,7 +51,7 @@ const RULES: Record<string, RuleSpec> = {
   debounce:  { mode: "src_dst", src: 1, params: [["delay", "20"]] },
   // Oscillator
   flasher:   { mode: "src_dst", src: 1, params: [["on", "500"], ["off", "500"]] },
-  hazard:    { mode: "src_dst", src: 1, params: [["on", "500"], ["off", "500"]] },
+  hazard:    { mode: "src_dst", src: 1, params: [["on", "500"], ["off", "500"], ["count", "3"]] },
   burst:     { mode: "src_dst", src: 1, params: [["on", "100"], ["off", "100"], ["count", "3"]] },
   pwm_out:   { mode: "src_dst", src: 1, params: [["freq", "1000"], ["duty", "50"]] },
   // Threshold

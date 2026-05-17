@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "PDMKit App",
-        "width": 1400,
-        "height": 900,
-        "minWidth": 1024,
-        "minHeight": 700
+        "width": 1120,
+        "height": 620,
+        "minWidth": 820,
+        "minHeight": 560
       }
     ],
     "security": {

@@ -134,6 +134,8 @@ function ruleToParams(rule: Rule): Record<string, string | number> {
   if (rule.window  !== undefined) p.window = rule.window;
   // CAN TX interval (firmware stores as pb, templates use interval)
   if (rule.pb !== undefined) p.interval = rule.pb;
+  // Hazard cycle count (firmware stores as pa)
+  if (rule.pa !== undefined) p.count = rule.pa;
   return p;
 }
 
